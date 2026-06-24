@@ -2,14 +2,29 @@ import h5py, glob, os
 import numpy as np
 
 # Variables
-n_chunks = 2
-post_downsample_length = 12000
-sampling_rate = 1.25e6
-channel_number = 0
+n_chunks = 2                        # Number of chunks to divide each data file into
+post_downsample_length = 12000      # Target length of the raw data file for downsampling
+sampling_rate = 1.25e6              # Sampling rate of the raw data in Hz
+channel_number = 0                  # Channel number to read from the raw data file (0-indexed)
 
 def preprocess(tdata, data, target_len=12000, sigma_thresh=4, radius=1000):
     """
-    Remove high points and also remove points within +/- radius of each removed point.
+    This function reads in raw data file and first:
+    - Marks all points above a defined height threshold
+    - Marks all points within a defined radius around each marked point from the previous step
+    - Removes all marked points
+    - Downsamples the remaining points to a defined target length
+
+    Inputs:
+    - tdata: time data array
+    - data: raw data array
+    - target_len: desired length of the output data array
+    - sigma_thresh: number of standard deviations above the median to define the height threshold
+    - radius: number of points around each marked point to also mark for removal
+
+    Returns:
+    - filtered_tdata: time data array after filtering and downsampling
+    - filtered_data: raw data array after filtering and downsampling
     """
     raw_data = np.asarray(data).copy()
     tdata = np.asarray(tdata)
@@ -18,7 +33,7 @@ def preprocess(tdata, data, target_len=12000, sigma_thresh=4, radius=1000):
     height = med + np.std(raw_data) * sigma_thresh
 
     # Initial keep mask
-    keep = raw_data < height   # True = keep, False = remove spike
+    keep = raw_data < height
 
     # Expand removals by radius
     if radius > 0:
@@ -41,7 +56,17 @@ def preprocess(tdata, data, target_len=12000, sigma_thresh=4, radius=1000):
     return filtered_tdata[idx], filtered_data[idx]
 
 def downsample(tdata, data, target_len=12000):
+    """
+    This function reads in the raw data and uniformly downsamples it to a specified target length.
 
+    Inputs:
+    - tdata: time data array
+    - data: raw data array
+    - target_len: desired length of the output data array
+    Returns:
+    - downsampled_tdata: time data array after downsampling
+    - downsampled_data: raw data array after downsampling
+    """
     raw_data = np.asarray(data).copy()
     tdata = np.asarray(tdata)
 
@@ -50,6 +75,16 @@ def downsample(tdata, data, target_len=12000):
     return tdata[idx], raw_data[idx]
 
 def chunk(tdata,data,n_chunks=n_chunks):
+    """
+    This function reads in a raw data file and divides it uniformly into a specified number of chunks.
+
+    Inputs:
+    - tdata: time data array
+    - data: raw data array
+    - n_chunks: number of chunks to divide the data into
+    Returns:
+    - chunks: list of tuples, where each tuple contains a chunk of time data and the corresponding chunk of raw data
+    """
     chunk_size = len(data) // n_chunks
     chunks = []
     for i in range(n_chunks):
@@ -58,58 +93,82 @@ def chunk(tdata,data,n_chunks=n_chunks):
         chunks.append((tdata[start:end], data[start:end]))
     return chunks
 
-def fft(tdata,data):
-    fs = sampling_rate
+def fft(data, fs=sampling_rate):
+    """
+    This function computes the Amplitude Spectral Density (ASD) of a given time-domain signal using the 
+    Fast Fourier Transform (FFT).
+
+    Inputs:
+    - data: time-domain signal array
+    - fs: sampling frequency of the signal in Hz
+    Returns:
+    - freqs: frequency bins
+    - asd: ASD values corresponding to the frequency bins
+    """
     n = len(data)
 
+    # Remove DC offset
     x = data - np.mean(data)
     N = len(x)
 
-    w = np.hanning(N)   # Hann window
-
+    # Use Hann window
+    w = np.hanning(N)
     xw = x * w
 
+    # Perform FFT
     Y = np.fft.rfft(xw)
     freqs = np.fft.rfftfreq(N, d=1/fs)
 
+    # Window power normalization
     U = (1/N) * np.sum(w**2)
 
+    # Compute one-sided PSD and convert to ASD
     psd = (1 / (fs * N * U)) * np.abs(Y)**2
     if N % 2 == 0:
         psd[1:-1] *= 2
     else:
         psd[1:] *= 2
-
     asd = np.sqrt(psd)
     
     return freqs,asd
 
 def linear_baseline(freqs, amplitude):
+    """
+    This function fits a linear baseline to the given frequency and amplitude data using least squares regression.
+
+    Inputs:
+    - freqs: frequency bins array
+    - amplitude: amplitude values array
+    Returns:
+    - baseline: fitted linear baseline values corresponding to the frequency bins
+    - residual: difference between the original amplitude values and the fitted baseline
+    """
 
     f = freqs
     a = amplitude
-
     if f.ndim != 1 or a.ndim != 1 or f.shape[0] != a.shape[0]:
         raise ValueError("freqs and amplitude must be 1D and same length")
-
     m, b = np.polyfit(f, a, deg=1)
-
     baseline = m * f + b
     residual = a - baseline
     return baseline, residual
 
 def filter_chunks(chunks, sigma_thresh=5):
+    """
+    This function reads in a list of data chunks and removes chunks that have points surpassing a defined height threshold.
 
+    Inputs:
+    - chunks: list of data chunks
+    - sigma_thresh: number of standard deviations above the median to define the height threshold
+    """
     filtered_chunks = []
-
     for chunk in chunks:
-        data = chunk[1]
+        data = chunk[1]             # Only look at the waveform data
         med = np.median(data)
         height = med + np.std(data) * sigma_thresh
         if np.any(data > height):
             continue
         filtered_chunks.append(chunk)
-
     return filtered_chunks
 
 
@@ -117,13 +176,14 @@ if __name__ == '__main__':
 
     # Path to the folder containing the .hdf5 files
     path = "/data/lbl/run21/raw/continuous_I4_D20250102_T224744/"
+
     # Pattern to find all .hdf5 files in the folder
     pattern = os.path.join(path, "cont_I4_D*_T*_F*.hdf5")
     filepaths = sorted(glob.glob(pattern))
     print(f"Found {len(filepaths)} files")
 
     # Loop over each file in the folder
-    for filepath in filepaths[10:]:
+    for filepath in filepaths[:1]:
         filename = os.path.basename(filepath)
         print("Reading:", filename[:-5]) 
 
@@ -145,8 +205,10 @@ if __name__ == '__main__':
 
                 # Downsample the raw waveform data
                 new_tdata, new_data = downsample(time_data, waveform_data)
+
                 # Divide the raw data into chunks
                 chunks = chunk(new_tdata, new_data)
+
                 # Discard any chunks that contains peaks above 5 sigma
                 filtered_chunks = filter_chunks(chunks)
 
@@ -154,7 +216,7 @@ if __name__ == '__main__':
                 for data_chunk in filtered_chunks:
 
                     # Compute the ASD for each chunk
-                    freqs, asd = fft(*data_chunk)
+                    freqs, asd = fft(data_chunk[1])
 
                     freqs_list.append(freqs.astype(np.float32))
                     asd_list.append(asd.astype(np.float32))
@@ -163,6 +225,7 @@ if __name__ == '__main__':
                     new_data_list.append(new_data.astype(np.float32))
                     time_data_list.append(time_data.astype(np.float32))
 
+        # Stack data and save to .npz file
         np.savez_compressed(
             f"/home/ilemleisher/data/data_{filename[:-5]}.npz",
             freqs_list=np.stack(freqs_list),         # (N, F) or (F,)
