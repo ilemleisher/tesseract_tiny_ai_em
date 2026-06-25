@@ -4,31 +4,33 @@ import os, glob, json
 from datetime import datetime
 from sklearn.utils.class_weight import compute_class_weight
 from model import cnn
+from utils import get_files
 
 # Path to preprocessed data (assumes format from preprocess.py)
 path = "/home/ilemleisher/data/"
 
 # Load all preprocessed files following naming format from preprocess.py
-# pattern = os.path.join(path, "data_cont_I4_D*_T*_F*.npz")
-# files = sorted(glob.glob(pattern))
-# print(f"Found {len(files)} files")
-# for filepath in files:
-    # with np.load(filepath) as d:
-    #     filename = os.path.basename(filepath)
-    #     print("Reading:", filename[:-4]) 
-    #     freqs_list = d['freqs_list']
-    #     asd_list = d['asd_list']
+filenames = get_files(path)
+print(f"Found {len(filenames)} files")
 
-# Load just one preprocessed data file and corresponding pseudo label file
-filename = "data_cont_I4_D20250102_T224816_F0001.npz"
-filepath = path+filename
-labelpath = path+"pseudo_labels_"+filename
+# Loop over each file in the folder
+for filename in filenames[:1]:
+    filepath = path+filename
+    print("Reading:", filename) 
+    with np.load(filepath) as d:
+        freqs_list = d['freqs_list']
+        asd_list = d['asd_list']
 
-with np.load(filepath) as d:
-    filename = os.path.basename(filepath)
-    print("Reading:", filename[:-4]) 
-    freqs_list = d['freqs_list']
-    asd_list = d['asd_list']
+# Load corresponding pseudo label files
+path += "labels/"
+filenames = get_files(path)
+
+# Loop over each file in the folder
+for filename in filenames[:1]:
+    filepath = path+filename
+    print("Reading:", filename) 
+    with np.load(filepath) as d:
+        y_win = d['pca_labels']
 
 # Define total number of chunks, number of frequency bins per chunk, and number of chunks per patch
 t, n_bins, k = len(freqs_list), len(freqs_list[0]), 6
@@ -37,9 +39,6 @@ X = np.log10(asd_list + 1e-12).astype(np.float32)
 
 # Create an array of ASD data chunk patches
 X_patch = np.array([X[i:i+k] for i in range(t-k+1)]) 
-
-with np.load(labelpath) as l:
-    y_win = l['pseudo_labels']
 
 # Create an array of binary labels for each patch (if any chunk in the patch is anomalous, the whole patch is labeled 
 # as such)

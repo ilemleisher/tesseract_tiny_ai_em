@@ -1,0 +1,74 @@
+import os, re, glob
+import numpy as np
+
+def get_files(path='/data/lbl/run21/raw/continuous_I4_D20250102_T224744/'):
+    """
+    This function finds all files within a specified directory that follow tessy data naming trend and
+    organizes it by continuity
+
+    Parameters:
+    - path: path to data directory
+
+    Returns:
+    - list of file names sorted by continuity
+    """
+    files = glob.glob(os.path.join(path, "*_I4_D*_T*_F*"))
+
+    # Define pattern
+    pat = re.compile(r"_I4_D(\d+)_T(\d+)_F(\d+)$")
+
+    # Key function for sorting by F*
+    def sort_key(fp):
+        name = os.path.basename(fp)
+        m = pat.match(name)
+        if not m:
+            return (10**18, 10**18, 10**18)
+        d, t, f = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        return (d, t, f)
+
+    return [os.path.basename(fp) for fp in sorted(files, key=sort_key)]
+
+def filter_files(filenames, target):
+    """
+    This function filters out filenames that don't match a specified target pattern
+
+    Parameters:
+    - filenames: list of filenames (e.g., from get_files())
+    - target: target pattern to filter by
+
+    Returns:
+    - list of filenames that match the pattern
+    """
+
+    pat = re.compile(r"(I\d+_D\d+_T\d+)_F(\d+)(?:\.[^.]+)?$")
+
+    out = []
+    for f in filenames:
+        m = pat.search(f)
+        if m and m.group(1) == target:
+            out.append((int(m.group(2)), f))
+
+    out.sort(key=lambda x: x[0])
+    return [f for _, f in out]
+
+def linear_baseline(freqs, amplitude):
+    """
+    This function fits a linear baseline to the given frequency and amplitude data using least squares regression.
+
+    Parameters:
+    - freqs: frequency bins array
+    - amplitude: amplitude values array
+    
+    Returns:
+    - baseline: fitted linear baseline values corresponding to the frequency bins
+    - residual: difference between the original amplitude values and the fitted baseline
+    """
+
+    f = freqs
+    a = amplitude
+    if f.ndim != 1 or a.ndim != 1 or f.shape[0] != a.shape[0]:
+        raise ValueError("freqs and amplitude must be 1D and same length")
+    m, b = np.polyfit(f, a, deg=1)
+    baseline = m * f + b
+    residual = a - baseline
+    return baseline, residual

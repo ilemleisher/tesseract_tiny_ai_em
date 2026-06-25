@@ -1,5 +1,6 @@
 import h5py, glob, os
 import numpy as np
+from utils import get_files
 
 # Variables
 n_chunks = 2                        # Number of chunks to divide each data file into
@@ -15,7 +16,7 @@ def preprocess(tdata, data, target_len=12000, sigma_thresh=4, radius=1000):
     - Removes all marked points
     - Downsamples the remaining points to a defined target length
 
-    Inputs:
+    Parameters:
     - tdata: time data array
     - data: raw data array
     - target_len: desired length of the output data array
@@ -59,10 +60,11 @@ def downsample(tdata, data, target_len=12000):
     """
     This function reads in the raw data and uniformly downsamples it to a specified target length.
 
-    Inputs:
+    Parameters:
     - tdata: time data array
     - data: raw data array
     - target_len: desired length of the output data array
+
     Returns:
     - downsampled_tdata: time data array after downsampling
     - downsampled_data: raw data array after downsampling
@@ -78,10 +80,11 @@ def chunk(tdata,data,n_chunks=n_chunks):
     """
     This function reads in a raw data file and divides it uniformly into a specified number of chunks.
 
-    Inputs:
+    Parameters:
     - tdata: time data array
     - data: raw data array
     - n_chunks: number of chunks to divide the data into
+
     Returns:
     - chunks: list of tuples, where each tuple contains a chunk of time data and the corresponding chunk of raw data
     """
@@ -98,9 +101,10 @@ def fft(data, fs=sampling_rate):
     This function computes the Amplitude Spectral Density (ASD) of a given time-domain signal using the 
     Fast Fourier Transform (FFT).
 
-    Inputs:
+    Parameters:
     - data: time-domain signal array
     - fs: sampling frequency of the signal in Hz
+
     Returns:
     - freqs: frequency bins
     - asd: ASD values corresponding to the frequency bins
@@ -132,34 +136,16 @@ def fft(data, fs=sampling_rate):
     
     return freqs,asd
 
-def linear_baseline(freqs, amplitude):
-    """
-    This function fits a linear baseline to the given frequency and amplitude data using least squares regression.
-
-    Inputs:
-    - freqs: frequency bins array
-    - amplitude: amplitude values array
-    Returns:
-    - baseline: fitted linear baseline values corresponding to the frequency bins
-    - residual: difference between the original amplitude values and the fitted baseline
-    """
-
-    f = freqs
-    a = amplitude
-    if f.ndim != 1 or a.ndim != 1 or f.shape[0] != a.shape[0]:
-        raise ValueError("freqs and amplitude must be 1D and same length")
-    m, b = np.polyfit(f, a, deg=1)
-    baseline = m * f + b
-    residual = a - baseline
-    return baseline, residual
-
 def filter_chunks(chunks, sigma_thresh=5):
     """
     This function reads in a list of data chunks and removes chunks that have points surpassing a defined height threshold.
 
-    Inputs:
+    Parameters:
     - chunks: list of data chunks
     - sigma_thresh: number of standard deviations above the median to define the height threshold
+
+    Returns:
+    - filtered_chunks: list containing chunks that pass the threshold
     """
     filtered_chunks = []
     for chunk in chunks:
@@ -177,15 +163,14 @@ if __name__ == '__main__':
     # Path to the folder containing the .hdf5 files
     path = "/data/lbl/run21/raw/continuous_I4_D20250102_T224744/"
 
-    # Pattern to find all .hdf5 files in the folder
-    pattern = os.path.join(path, "cont_I4_D*_T*_F*.hdf5")
-    filepaths = sorted(glob.glob(pattern))
-    print(f"Found {len(filepaths)} files")
+    filenames = get_files(path)
+
+    print(f"Found {len(filenames)} files")
 
     # Loop over each file in the folder
-    for filepath in filepaths[:1]:
-        filename = os.path.basename(filepath)
-        print("Reading:", filename[:-5]) 
+    for filename in filenames[:1]:
+        filepath = path+filename
+        print("Reading:", filename) 
 
         with h5py.File(filepath, "r") as data:
             events = data['adc1'].keys()
