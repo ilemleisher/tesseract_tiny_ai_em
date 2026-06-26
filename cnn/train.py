@@ -1,36 +1,32 @@
 import numpy as np
 import tensorflow as tf
 import os, glob, json
+import matplotlib.pyplot as plt
 from datetime import datetime
 from sklearn.utils.class_weight import compute_class_weight
 from model import cnn
-from utils import get_files
+from utils import get_files, filter_files, stitch_files
 
 # Path to preprocessed data (assumes format from preprocess.py)
 path = "/home/ilemleisher/data/"
 
-# Load all preprocessed files following naming format from preprocess.py
-filenames = get_files(path)
-print(f"Found {len(filenames)} files")
+# Dataset
+target = 'I4_D20250102_T230851'
 
-# Loop over each file in the folder
-for filename in filenames[:1]:
-    filepath = path+filename
-    print("Reading:", filename) 
-    with np.load(filepath) as d:
-        freqs_list = d['freqs_list']
-        asd_list = d['asd_list']
+# Load continuous data from preprocessed files following naming format from preprocess.py
+filenames = filter_files(get_files(path),target)
+containers = stitch_files(path,filenames,'freqs_list','asd_list')
+freqs_list = containers['freqs_list']
+asd_list = containers['asd_list']
 
 # Load corresponding pseudo label files
 path += "labels/"
-filenames = get_files(path)
+with np.load(path+"pca_labels_"+str(target)+".npz") as d:
+    pca_labels = d['pca_labels']
+    ema_labels = d['ema_labels']
 
-# Loop over each file in the folder
-for filename in filenames[:1]:
-    filepath = path+filename
-    print("Reading:", filename) 
-    with np.load(filepath) as d:
-        y_win = d['pca_labels']
+# Merge labels
+y_win = pca_labels+ema_labels
 
 # Define total number of chunks, number of frequency bins per chunk, and number of chunks per patch
 t, n_bins, k = len(freqs_list), len(freqs_list[0]), 6
@@ -53,7 +49,8 @@ X_val, y_val = X_patch[n_train:n_train+n_val], y_patch[n_train:n_train+n_val]
 X_test, y_test = X_patch[n_train+n_val:], y_patch[n_train+n_val:]
 
 # Create unique training directory
-training_dir = os.path.join("training", datetime.now().strftime("%Y%m%d_%H%M%S"))
+base_dir = '/home/ilemleisher/training'
+training_dir = os.path.join(base_dir, datetime.now().strftime("%Y%m%d_%H%M%S"))
 os.makedirs(training_dir, exist_ok=True)
 
 # Calculate references stats for normalization
@@ -89,7 +86,7 @@ class_weight = {int(c): float(w) for c, w in zip(classes, weights)}
 #Callbacks
 callbacks = [
     tf.keras.callbacks.EarlyStopping(                             #stop if no improvement in patience epochs
-        monitor="val_auc", mode="max", patience=8, restore_best_weights=True
+        monitor="val_auc", mode="max", patience=20, restore_best_weights=True
     ),
     tf.keras.callbacks.ModelCheckpoint(                                             #saves model when improves
         os.path.join(training_dir, "best_asd_cnn.keras"), monitor="val_auc", mode="max", save_best_only=True
@@ -100,7 +97,7 @@ callbacks = [
 ]
 
 #Train
-model.fit(
+history = model.fit(
     X_train, y_train,
     validation_data=(X_val, y_val),
     epochs=n_epochs,
@@ -137,3 +134,46 @@ with open(os.path.join(training_dir, "metrics.json"), "w") as f:
 
 with open(os.path.join(training_dir, "threshold.json"), "w") as f:
     json.dump({"threshold": 0.5}, f, indent=2)
+
+# Plot training and validation curves
+history_dict = history.history
+epochs = range(1, len(next(iter(history_dict.values()))) + 1)
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+
+axes[0].plot(epochs, history_dict["loss"], label="train loss")
+axes[0].plot(epochs, history_dict["val_loss"], label="val loss")
+axes[0].set_xlabel("Epoch")
+axes[0].set_ylabel("Loss")
+axes[0].set_title("Loss curve")
+axes[0].legend()
+
+axes[1].plot(epochs, history_dict["acc"], label="train acc")
+axes[1].plot(epochs, history_dict["val_acc"], label="val acc")
+axes[1].set_xlabel("Epoch")
+axes[1].set_ylabel("Accuracy")
+axes[1].set_title("Accuracy curve")
+axes[1].legend()
+
+plt.tight_layout()
+plt.savefig(os.path.join(training_dir, "training_curves.png"), dpi=200)
+plt.close(fig)
+
+# Plot validation vs test metrics as a simple comparison bar chart
+metric_names = ["loss", "acc", "auc"]
+val_values = [val_metrics.get(name, np.nan) for name in metric_names]
+test_values = [test_metrics.get(name, np.nan) for name in metric_names]
+
+fig, ax = plt.subplots(figsize=(8, 4))
+x = np.arange(len(metric_names))
+width = 0.35
+ax.bar(x - width/2, val_values, width, label="val")
+ax.bar(x + width/2, test_values, width, label="test")
+ax.set_xticks(x)
+ax.set_xticklabels(metric_names)
+ax.set_ylabel("Metric value")
+ax.set_title("Validation vs Test Metrics")
+ax.legend()
+plt.tight_layout()
+plt.savefig(os.path.join(training_dir, "val_test_metrics.png"), dpi=200)
+plt.close(fig)
