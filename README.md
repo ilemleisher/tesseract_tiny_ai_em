@@ -4,8 +4,23 @@ This repository contains all codes being developed for a real-time anomalous noi
 
 ## Workflow
 
-Currently, the system uses a 2D Convolutional Neural Network (CNN) to detect anomalies in power spectra from the detector. 
 Waveform data from both ADCs in the detector are uploaded onto the TESSERACT servers in real time in ~1 second increments. 
 The data outputs are contained in HDF5 files. 
-A preprocessing script loads an HDF5 file, downsamples it to a more managable sampling frequency, divides the data into smaller chunks, and throws out any chunks that contain signal from the experiment. 
-The script performs a FFT on the chunks, and then stacks the spectral data into a continuous dataset for the CNN.
+
+### Primary Scripts
+
+- '''preprocess.py''': reads the raw HDF5 files, downsamples them, divides each data file into uniform chunks, filters out any chunks that contain signal events (represented by peaks in the waveform data), performs FFT on the chunks, then concatenates the chunks so that they represent time-continuous data (across several data files).
+
+- '''pca.py''': loads '''.npz''' files saved from '''preprocess.py''' and uses PCA to calculate a reconstruction error and identify data chunks that contain anomalous peaks. Also calculates EMA baseline residual to identify data chunks that contian anomalous baseline drift. Plots the PCA reconstruction residual against the ASD for each anomalous chunk.
+
+- '''model.py''': TensorFlow 2D Convolutional Neural Network (CNN). Has three 2D convolution layers, a global pooling layer, and a linear output layer.
+
+- '''train.py''': loads data files saved from '''preprocess.py''' and corresponding label files from '''pca.py''' to create data patches for the CNN. Trains the model using binary cross entropy loss, saves the best model, metrics, and loss/accuracy plots.
+
+- '''utils.py''': contains helper functions for loading files and calculating linear baseline.
+
+### Additional Scripts
+
+- '''infer.py''': work in progress, eventually to be used with the trained CNN.
+
+- '''noise.py''': works the same as '''preprocess.py''' for loading in data and creating spectral chunks, however with the addition of artifical noise modes, with the goal being to implement specific noise to have a sufficiently large labeled dataset for supervised training of the CNN.

@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-import os, glob, json
+import os, json
 import matplotlib.pyplot as plt
 from datetime import datetime
 from sklearn.utils.class_weight import compute_class_weight
@@ -28,13 +28,17 @@ with np.load(path+"pca_labels_"+str(target)+".npz") as d:
 # Merge labels
 y_win = pca_labels+ema_labels
 
+print(f"Number of anomalous labels: {len(np.where(y_win != 0)[0])}")
+
 # Define total number of chunks, number of frequency bins per chunk, and number of chunks per patch
 t, n_bins, k = len(freqs_list), len(freqs_list[0]), 6
 
 X = np.log10(asd_list + 1e-12).astype(np.float32)
 
 # Create an array of ASD data chunk patches
-X_patch = np.array([X[i:i+k] for i in range(t-k+1)]) 
+X_patch = np.array([X[i:i+k] for i in range(t-k+1)], dtype=np.float32)  # (N,k,n_bins)
+X_patch = X_patch[..., np.newaxis]  # (N,k,n_bins,1)
+
 
 # Create an array of binary labels for each patch (if any chunk in the patch is anomalous, the whole patch is labeled 
 # as such)
@@ -44,9 +48,16 @@ y_patch = np.array([int(np.any(y_win[i:i+k] == 1)) for i in range(t - k + 1)], d
 N = len(X_patch)
 n_train = int(0.7 * N)
 n_val = int(0.15 * N)
-X_train, y_train = X_patch[:n_train], y_patch[:n_train]
-X_val, y_val = X_patch[n_train:n_train+n_val], y_patch[n_train:n_train+n_val]
-X_test, y_test = X_patch[n_train+n_val:], y_patch[n_train+n_val:]
+gap = k - 1
+
+train_end = n_train
+val_start = train_end + gap
+val_end = val_start + n_val
+test_start = val_end + gap
+
+X_train, y_train = X_patch[:train_end], y_patch[:train_end]
+X_val, y_val = X_patch[val_start:val_end], y_patch[val_start:val_end]
+X_test, y_test = X_patch[test_start:], y_patch[test_start:]
 
 # Create unique training directory
 base_dir = '/home/ilemleisher/training'
@@ -177,3 +188,5 @@ ax.legend()
 plt.tight_layout()
 plt.savefig(os.path.join(training_dir, "val_test_metrics.png"), dpi=200)
 plt.close(fig)
+
+print(training_dir)
