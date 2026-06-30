@@ -1,7 +1,7 @@
 import numpy as np
 import os
 from sklearn.decomposition import PCA
-from utils import get_files, filter_files, linear_baseline
+from utils import get_files, filter_files, get_drift_score
 import matplotlib.pyplot as plt
 
 # Reconstruction-error anomaly score
@@ -14,7 +14,8 @@ def pca_recon_flags(X, pca, threshold_percentile=99.5):
     - pca: PCA model
     - threshold_percentile: the threshold above which to label an anomaly
     Returns:
-    - pred_x: list of anomaly labels (0 = no anomaly, 1 = anomaly)
+    - peak_flags: list of anomaly labels (0 = no anomaly, 1 = anomaly)
+    - idx: list of corresponding indices for the anomaly labels
     - residual_data: array of PCA error residuals for each anomalous chunk
     """
     # Project each sample into PCA space
@@ -29,13 +30,47 @@ def pca_recon_flags(X, pca, threshold_percentile=99.5):
     # Define PCA threshold based on desired false alarm rate <<< this needs to be tuned
     thr = np.percentile(err, threshold_percentile)
 
-    pred_x = (err > thr).astype(np.int32)
-    idx = np.where(pred_x == 1)[0]
+    peak_flags = (err > thr).astype(np.int32)
+    idx = np.where(peak_flags == 1)[0]
     print(f"Labeled chunks with indices {idx.tolist()} as anomalous by PCA reconstruction")
 
-    residual_data = X[idx] - Xhat[idx]
+    residual_data = X - Xhat
 
-    return pred_x, residual_data
+    return peak_flags, idx, residual_data
+
+def ema_baseline_flag(freqs, X, s):
+    '''
+    This function calculates a drift score for each data chunk and assigns anomaly flags based on a
+    defined threshold of s sigma above the mean.
+
+    Parameters:
+    - freqs: an array of frequency lists for data chunks
+    - X: an array of ASD amplitude (in logspace) lists for the same data chunks
+    - s: sigma threshold
+    Returns:
+    - drift_flags: list of anomaly labels (0 = no anomaly, 1 = anomaly) 
+    - idx: list of corresponding indices for the anomaly labels
+    - baselines: list of baseline value lists for data chunks
+    - residuals: list of residual value lists for data chunks
+    - drift_scores: list of drift scores for data chunks
+    '''
+
+    drift_scores=[]
+    baselines = []
+    residuals = []
+
+    for i in range(len(X)):
+        baseline, residual, drift_score = get_drift_score(freqs[i], X[i])
+        drift_scores.append(drift_score)
+        baselines.append(baseline)
+        residuals.append(residual)
+
+    thr = np.mean(drift_scores) + s * np.std(drift_scores)
+    drift_flags = (drift_scores > thr).astype(np.int32)
+    idx = np.where(drift_flags == 1)[0]
+    print(f"Labeled chunks with indices {idx.tolist()} as anomalous by EMA baseline drift")
+
+    return drift_flags, idx, baselines, residuals, drift_scores
 
 if __name__ == '__main__':
 
@@ -69,29 +104,18 @@ if __name__ == '__main__':
     X = np.log10(asd_total + 1e-12).astype(np.float32)
     print(f"Found {len(X)} chunks")
 
-    # Calculate references stats for normalization
-    mu = X.mean(axis=(0,1), keepdims=True)
-    sigma = X.std(axis=(0,1), keepdims=True) + 1e-8
-    X = (X - mu) / sigma
-
-    # EMA baseline shift
-    drift_scores = []
-    for i in range(len(X)):
-        baseline, residual = linear_baseline(freqs_total[i], X[i])
-        drift_scores.append(np.mean(np.abs(residual)))
-
     # PCA
     pca = PCA(n_components=0.99, svd_solver="full")  # keep 99% variance
     pca.fit(X)
 
-    pred_x, residuals = pca_recon_flags(X, pca, 99.5)
+    peak_flags, idx, residuals = pca_recon_flags(X, pca, 99.5)
 
     # Plot each anomalous original ASD with the residuals overlayed
-    for i in range(len(residuals)):
+    for index in idx:
         
-        f = np.asarray(freqs_total[i]).ravel()       # frequency
-        asd = np.asarray(asd_total[i]).ravel()         # ASD
-        res = np.abs(np.asarray(residuals[i]).ravel())  # residual magnitude per freq bin
+        f = np.asarray(freqs_total[index]).ravel()       # frequency
+        asd = np.asarray(asd_total[index]).ravel()         # ASD
+        res = np.abs(np.asarray(residuals[index]).ravel())  # residual magnitude per freq bin
 
         fig, ax1 = plt.subplots(figsize=(10, 5))
 
@@ -115,14 +139,36 @@ if __name__ == '__main__':
         ax1.legend(h1 + h2, l1 + l2, loc="upper left")
 
         plt.title(f"ASD (log-log) with aligned residuals")
-        plt.savefig(f"/home/ilemleisher/plots/residuals_{i}")
+        plt.savefig(f"/home/ilemleisher/plots/residuals/{target}_residuals_chunk_{index}")
 
 
-    # 5 sigma threshold for EMA
-    thr = np.mean(drift_scores) + 5 * np.std(drift_scores)
-    drift_flags = (drift_scores > thr).astype(np.int32)
-    idx = np.where(drift_flags == 1)[0]
-    print(f"Labeled chunks with indices {idx.tolist()} as anomalous by EMA baseline drift")
+    # Get EMA baseline drift flags
+    drift_flags, idx, baselines, residuals, drift_scores = ema_baseline_flag(freqs_total, X, 3)
 
-    np.savez_compressed(f"{path}labels/pca_labels_{target}.npz",pca_labels=pred_x.astype(np.int8),
+    # For each baseline anomaly, plot the nearest 5 data chunks with baselines overlayed
+    for center_idx in idx:
+        fig, axes = plt.subplots(1, 5, figsize=(20, 5), sharey=True)
+
+        # plot chunks [center_idx-2, ..., center_idx+2]
+        for offset, ax in zip(range(-2, 3), axes):
+            i = center_idx + offset
+
+            ax.loglog(freqs_total[i], asd_total[i], label="fft data")
+            ax.loglog(
+                freqs_total[i],
+                10**baselines[i],
+                "r--",
+                label=f"drift score={drift_scores[i]:.3f}",
+            )
+            ax.set_title(f"Chunk {i}")
+            ax.set_xlabel("Frequency [Hz]")
+            ax.set_ylabel(r"[A/$\sqrt{\mathrm{Hz}}$]")
+            ax.legend()
+
+        plt.tight_layout()
+        plt.savefig(f"/home/ilemleisher/plots/residuals/{target}_drift_chunk_{center_idx}")
+        plt.close(fig)
+        
+
+    np.savez_compressed(f"{path}labels/pca_labels_{target}.npz",pca_labels=peak_flags.astype(np.int8),
                         ema_labels=drift_flags.astype(np.int8))

@@ -9,18 +9,26 @@ The data outputs are contained in HDF5 files.
 
 ### Primary Scripts
 
-- '''preprocess.py''': reads the raw HDF5 files, downsamples them, divides each data file into uniform chunks, filters out any chunks that contain signal events (represented by peaks in the waveform data), performs FFT on the chunks, then concatenates the chunks so that they represent time-continuous data (across several data files).
+- ```preprocess.py```: reads the raw HDF5 files, downsamples them, divides each data file into uniform chunks, filters out any chunks that contain signal events (represented by peaks in the waveform data), performs FFT on the chunks, then concatenates the chunks so that they represent time-continuous data (across several data files).
 
-- '''pca.py''': loads '''.npz''' files saved from '''preprocess.py''' and uses PCA to calculate a reconstruction error and identify data chunks that contain anomalous peaks. Also calculates EMA baseline residual to identify data chunks that contian anomalous baseline drift. Plots the PCA reconstruction residual against the ASD for each anomalous chunk.
+- ```anomaly.py```: loads ```.npz``` files saved from ```preprocess.py``` and uses PCA to calculate a reconstruction error and identify data chunks that contain anomalous peaks. Also calculates EMA baseline residual to identify data chunks that contian anomalous baseline drift. Plots the PCA reconstruction residual against the ASD for each anomalous chunk, and plots 5 data chunks centered on each chunk labeled with a baseline anomaly.
 
-- '''model.py''': TensorFlow 2D Convolutional Neural Network (CNN). Has three 2D convolution layers, a global pooling layer, and a linear output layer.
+- ```model.py```: TensorFlow 2D Convolutional Neural Network (CNN). Has three 2D convolution layers, a global pooling layer, and a linear output layer.
 
-- '''train.py''': loads data files saved from '''preprocess.py''' and corresponding label files from '''pca.py''' to create data patches for the CNN. Trains the model using binary cross entropy loss, saves the best model, metrics, and loss/accuracy plots.
+- ```train.py```: loads data files saved from ```preprocess.py``` and corresponding label files from ```pca.py``` to create data patches for the CNN. Trains the model using binary cross entropy loss, saves the best model, metrics, and loss/accuracy plots.
 
-- '''utils.py''': contains helper functions for loading files and calculating linear baseline.
+- ```utils.py```: contains helper functions for loading files and calculating linear baseline.
 
 ### Additional Scripts
 
-- '''infer.py''': work in progress, eventually to be used with the trained CNN.
+- ```infer.py```: work in progress, eventually to be used with the trained CNN.
 
-- '''noise.py''': works the same as '''preprocess.py''' for loading in data and creating spectral chunks, however with the addition of artifical noise modes, with the goal being to implement specific noise to have a sufficiently large labeled dataset for supervised training of the CNN.
+- ```noise.py```: works the same as ```preprocess.py``` for loading in data and creating spectral chunks, however with the addition of artifical noise modes, with the goal being to implement specific noise to have a sufficiently large labeled dataset for supervised training of the CNN.
+
+## Required Packages
+
+- ```h5py```
+- ```numpy```
+- ```TensorFlow```
+- ```matplotlib```
+- ```sklearn```

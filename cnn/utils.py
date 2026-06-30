@@ -12,7 +12,7 @@ def get_files(path='/data/lbl/run21/raw/continuous_I4_D20250102_T224744/'):
     Returns:
     - filenames: list of file names sorted by continuity
     """
-    files = glob.glob(os.path.join(path, "*_I4_D*_T*_F*"))
+    files = glob.glob(os.path.join(path, "cont_I4_D*_T*_F*"))
 
     # Define pattern
     pat = re.compile(r"_I4_D(\d+)_T(\d+)_F(\d+)$")
@@ -60,9 +60,10 @@ def filter_files(filenames, target):
 
     return filtered_filenames
 
-def linear_baseline(freqs, amplitude):
+def get_drift_score(freqs, amplitude):
     """
-    This function fits a linear baseline to the given frequency and amplitude data using least squares regression.
+    This function fits a linear baseline to the given frequency and amplitude data using least squares regression and calculates
+    a baseline drift score using the residual.
 
     Parameters:
     - freqs: frequency bins array
@@ -71,6 +72,7 @@ def linear_baseline(freqs, amplitude):
     Returns:
     - baseline: fitted linear baseline values corresponding to the frequency bins
     - residual: difference between the original amplitude values and the fitted baseline
+    - drift_score: mean of the baseline residual
     """
 
     f = freqs
@@ -80,7 +82,10 @@ def linear_baseline(freqs, amplitude):
     m, b = np.polyfit(f, a, deg=1)
     baseline = m * f + b
     residual = a - baseline
-    return baseline, residual
+
+    drift_score = np.mean(np.abs(residual))
+
+    return baseline, residual, drift_score
 
 def stitch_files(path, filenames, *keys):
     """
