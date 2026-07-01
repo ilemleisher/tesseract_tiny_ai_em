@@ -7,7 +7,38 @@ This repository contains all codes being developed for a real-time anomalous noi
 Waveform data from both ADCs in the detector are uploaded onto the TESSERACT servers in real time in ~1 second increments. 
 The data outputs are contained in HDF5 files. 
 
-### Primary Scripts
+### ```preprocessing```
+
+- ```preprocess.py```
+1- Loads all consecutive HDF5 files.
+    - In the future modify for real-time
+2- Constructs waveform data from defined channel.
+3- Downsamples.
+4- Chunks data.
+5- Filters out signal.
+6- FFT.
+7- Concatenates chunks into one file.
+8- Saves as npz to server.
+
+### ```modules```
+
+Modules are toggleable anomaly detection algorithms. Each module must contain a ```flag``` function that reads in frequency data and ASD data, and outputs an array of binary anomaly labeling, corresponding chunk indices, and metadata.
+
+- ```pca.py```:
+1- Runs PCA.
+2- Evaluates PCA reconstruction error compared to threshold.
+
+- ```ema.py```:
+1- Calculates drift score based on linear baseline residuals.
+2- Identifies outlier drift scores.
+
+### ```main.py```
+
+1- Loads modules.
+2- Loads all consecutive npz data files based on target dataset.
+3- Runs modules and creates complete flag array 
+
+### Dev Scripts
 
 - ```preprocess.py```: reads the raw HDF5 files, downsamples them, divides each data file into uniform chunks, filters out any chunks that contain signal events (represented by peaks in the waveform data), performs FFT on the chunks, then concatenates the chunks so that they represent time-continuous data (across several data files).
 
@@ -18,8 +49,6 @@ The data outputs are contained in HDF5 files.
 - ```train.py```: loads data files saved from ```preprocess.py``` and corresponding label files from ```pca.py``` to create data patches for the CNN. Trains the model using binary cross entropy loss, saves the best model, metrics, and loss/accuracy plots.
 
 - ```utils.py```: contains helper functions for loading files and calculating linear baseline.
-
-### Additional Scripts
 
 - ```infer.py```: work in progress, eventually to be used with the trained CNN.
 

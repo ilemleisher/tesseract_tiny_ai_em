@@ -1,5 +1,17 @@
 import os, re, glob
 import numpy as np
+import time
+from functools import wraps
+
+def track_runtime(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        end = time.perf_counter()
+        print(f"Function '{func.__name__}' took {end - start:.6f} seconds to execute.")
+        return result
+    return wrapper
 
 def get_files(path='/data/lbl/run21/raw/continuous_I4_D20250102_T224744/'):
     """
@@ -12,7 +24,7 @@ def get_files(path='/data/lbl/run21/raw/continuous_I4_D20250102_T224744/'):
     Returns:
     - filenames: list of file names sorted by continuity
     """
-    files = glob.glob(os.path.join(path, "cont_I4_D*_T*_F*"))
+    files = glob.glob(os.path.join(path, "*cont_I4_D*_T*_F*"))
 
     # Define pattern
     pat = re.compile(r"_I4_D(\d+)_T(\d+)_F(\d+)$")
@@ -59,33 +71,6 @@ def filter_files(filenames, target):
     print(f"Filtered to {len(filtered_filenames)} files that match the target")
 
     return filtered_filenames
-
-def get_drift_score(freqs, amplitude):
-    """
-    This function fits a linear baseline to the given frequency and amplitude data using least squares regression and calculates
-    a baseline drift score using the residual.
-
-    Parameters:
-    - freqs: frequency bins array
-    - amplitude: amplitude values array
-    
-    Returns:
-    - baseline: fitted linear baseline values corresponding to the frequency bins
-    - residual: difference between the original amplitude values and the fitted baseline
-    - drift_score: mean of the baseline residual
-    """
-
-    f = freqs
-    a = amplitude
-    if f.ndim != 1 or a.ndim != 1 or f.shape[0] != a.shape[0]:
-        raise ValueError("freqs and amplitude must be 1D and same length")
-    m, b = np.polyfit(f, a, deg=1)
-    baseline = m * f + b
-    residual = a - baseline
-
-    drift_score = np.mean(np.abs(residual))
-
-    return baseline, residual, drift_score
 
 def stitch_files(path, filenames, *keys):
     """

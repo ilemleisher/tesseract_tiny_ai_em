@@ -1,11 +1,11 @@
 import numpy as np
 import os
 from sklearn.decomposition import PCA
-from utils import get_files, filter_files, get_drift_score
+from utils import get_files, filter_files, get_drift_score, stitch_files
 import matplotlib.pyplot as plt
 
 # Reconstruction-error anomaly score
-def pca_recon_flags(X, pca, threshold_percentile=99.5):
+def pca_recon_flags(X, pca, thr=0.0015):
     """
     This function computes the PCA reconstruction-error per sample and assigns flags based on a defined threshold.
 
@@ -26,9 +26,6 @@ def pca_recon_flags(X, pca, threshold_percentile=99.5):
 
     # Compute MSE
     err = np.mean((X - Xhat)**2, axis=1)
-
-    # Define PCA threshold based on desired false alarm rate <<< this needs to be tuned
-    thr = np.percentile(err, threshold_percentile)
 
     peak_flags = (err > thr).astype(np.int32)
     idx = np.where(peak_flags == 1)[0]
@@ -75,31 +72,19 @@ def ema_baseline_flag(freqs, X, s):
 if __name__ == '__main__':
 
     # Path to preprocessed data (assumes format from preprocess.py)
-    path = "/home/ilemleisher/data/"
+    path = "/home/ilemleisher/data/artificial_noise/"
 
     # Dataset
-    target = 'I4_D20250102_T230851'
+    target = 'I4_D20250102_T224816'
 
     # Load continuous data from preprocessed files following naming format from preprocess.py
     filenames = filter_files(get_files(path),target)
     print(f"Found {len(filenames)} files")
 
-    freqs_container,asd_container = [],[]
-
-    # Stitch together all continuous data
-    for filename in filenames:
-        filepath = path+filename
-        with np.load(filepath) as d:
-            filename = os.path.basename(filepath)
-            print("Reading:", filename) 
-            freqs_list = d['freqs_list']
-            asd_list = d['asd_list']
-
-        freqs_container.append(freqs_list)
-        asd_container.append(asd_list)
-
-    freqs_total = np.concatenate(freqs_container)
-    asd_total = np.concatenate(asd_container)
+    # Stitch together continuous dataset
+    containers = stitch_files(path, filenames, 'freqs_list','asd_list')
+    freqs_total = containers['freqs_list']
+    asd_total = containers['asd_list']
 
     X = np.log10(asd_total + 1e-12).astype(np.float32)
     print(f"Found {len(X)} chunks")
@@ -108,7 +93,7 @@ if __name__ == '__main__':
     pca = PCA(n_components=0.99, svd_solver="full")  # keep 99% variance
     pca.fit(X)
 
-    peak_flags, idx, residuals = pca_recon_flags(X, pca, 99.5)
+    peak_flags, idx, residuals = pca_recon_flags(X, pca)
 
     # Plot each anomalous original ASD with the residuals overlayed
     for index in idx:
@@ -139,7 +124,7 @@ if __name__ == '__main__':
         ax1.legend(h1 + h2, l1 + l2, loc="upper left")
 
         plt.title(f"ASD (log-log) with aligned residuals")
-        plt.savefig(f"/home/ilemleisher/plots/residuals/{target}_residuals_chunk_{index}")
+        plt.savefig(f"/home/ilemleisher/plots/artificial_noise/residuals/{target}_residuals_chunk_{index}")
 
 
     # Get EMA baseline drift flags
@@ -166,7 +151,7 @@ if __name__ == '__main__':
             ax.legend()
 
         plt.tight_layout()
-        plt.savefig(f"/home/ilemleisher/plots/residuals/{target}_drift_chunk_{center_idx}")
+        plt.savefig(f"/home/ilemleisher/plots/artificial_noise/residuals/{target}_drift_chunk_{center_idx}")
         plt.close(fig)
         
 
