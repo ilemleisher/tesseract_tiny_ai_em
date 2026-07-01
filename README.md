@@ -10,6 +10,7 @@ The data outputs are contained in HDF5 files.
 ### ```preprocessing```
 
 - ```preprocess.py```
+
 1- Loads all consecutive HDF5 files.
     - In the future modify for real-time
 2- Constructs waveform data from defined channel.
@@ -25,10 +26,12 @@ The data outputs are contained in HDF5 files.
 Modules are toggleable anomaly detection algorithms. Each module must contain a ```flag``` function that reads in frequency data and ASD data, and outputs an array of binary anomaly labeling, corresponding chunk indices, and metadata.
 
 - ```pca.py```:
+
 1- Runs PCA.
 2- Evaluates PCA reconstruction error compared to threshold.
 
 - ```ema.py```:
+
 1- Calculates drift score based on linear baseline residuals.
 2- Identifies outlier drift scores.
 
